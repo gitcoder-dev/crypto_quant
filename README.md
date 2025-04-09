@@ -15,7 +15,7 @@
 1️⃣ 克隆项目或下载代码：
 
 ```bash
-git clone https://github.com/Ashley0324/crypto_quant_exercise
+git clone https://github.com/Ashley0324/crypto_quant
 cd crypto_quant_exercise
 ```
 
