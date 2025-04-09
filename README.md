@@ -35,7 +35,7 @@ python strategy.py
 
 ```bash
 crypto_quant_exercise/
-├── strtegies               # 主策略所在文件夹
+├── strategies               # 主策略所在文件夹
 ├── requirements.txt        # 依赖清单
 ├── Dockerfile              # 可选，容器部署配置
 ├── data/                   # 本地缓存K线数据
