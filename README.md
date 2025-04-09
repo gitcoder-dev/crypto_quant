@@ -1,4 +1,4 @@
-# 🚀 Ashley_Quant
+# 🚀 Crypto_Quant
 
 这是我在学习 **加密货币量化交易** 中的实战项目，基于 [Backtrader](https://www.backtrader.com/) 和 [Binance API](https://binance-docs.github.io/apidocs/spot/en/) 进行策略回测与优化分析。
 
