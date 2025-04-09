@@ -65,7 +65,7 @@ crypto_quant_exercise/
 
 - 提 Issue 或 Pull Request
 - 发邮件联系：ashleyjin0324@gmail.com
-- telegram交流群：thorpai
+- telegram交流群：https://t.me/+PMkkHh0IfVU4ZTJl
 
 ---
 
