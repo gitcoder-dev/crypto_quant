@@ -1,0 +1,13 @@
+# 基础镜像
+FROM python:3.9-slim
+
+# 安装依赖
+RUN pip install --upgrade pip && \
+    pip install backtrader pandas matplotlib python-binance seaborn
+
+# 复制项目代码
+WORKDIR /app
+COPY . /app
+
+# 设置默认运行命令（可选）
+CMD ["python", "your_script.py"]
