@@ -16,7 +16,7 @@
 
 ```bash
 git clone https://github.com/Ashley0324/crypto_quant
-cd crypto_quant_exercise
+cd crypto_quant
 ```
 
 2️⃣ 安装依赖：
