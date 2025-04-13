@@ -22,7 +22,7 @@ def format_float(value, digits=2):
 client = Client()
 
 # 获取历史k线数据
-def get_binance_btc_data(symbol='BTCUSDT', interval='1h', lookback_days=200):
+def get_binance_btc_data(symbol='BTCUSDT', interval='1h', lookback_days=900):
     end_time = datetime.datetime.now()
     start_time = end_time - datetime.timedelta(days=lookback_days)
 
@@ -77,10 +77,15 @@ class TurtleATRStrategy(bt.Strategy):
         self.last_entry_price = None
         self.units = 0
         self.order = None
+        self.trade_count = 0
 
     def notify_order(self, order):
         if order.status in [order.Completed, order.Canceled, order.Margin]:
             self.order = None
+    
+    def notify_trade(self, trade):
+        if trade.isclosed:
+            self.trade_count += 1
 
     def next(self):
         if self.order:
@@ -143,6 +148,7 @@ def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=
     annual = returns.get('rnorm', None)
     average = returns.get('ravg', None)
     maxdd = drawdown.get('max', {}).get('drawdown', None)
+    total_trades = strat.trade_count
 
     # 输出分析结果
     print(f"[{interval}] entry={entry_period}, exit={exit_period}, atr={atr_period} | "
@@ -150,7 +156,8 @@ def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=
           f"Return: {format_float(rtot * 100 if rtot is not None else None)}%, "
           f"MaxDD: {format_float(maxdd)}%, "
           f"Annual: {format_float(annual * 100 if annual is not None else None)}%, "
-          f"Avg: {format_float(average * 100 if average is not None else None)}%")
+          f"Avg: {format_float(average * 100 if average is not None else None)}%"
+          f"Trades Count:{total_trades}")
 
     # 绘图
     if plot:
@@ -174,6 +181,7 @@ def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=
         'maxdd': maxdd,
         'annual': annual,
         'average': average,
+        'trades':total_trades,
     }
 
 
@@ -188,9 +196,9 @@ def main():
     all_results = []
 
     intervals = ['1h']
-    entry_range = range(10, 20, 5)
+    entry_range = range(10, 11, 5)
     exit_range = range(20, 41, 5)
-    atr_range = range(10, 31, 5)
+    atr_range = range(10, 20, 5)
 
     print("🔍 正在进行参数优化...\n")
 
