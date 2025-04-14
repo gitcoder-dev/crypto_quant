@@ -29,7 +29,7 @@ pip install -r requirements.txt
 
 3️⃣ 运行策略主脚本：
 ```bash
-python strategy.py
+python (你想运行的策略名称).py
 ```
 回测完成后会输出每组参数组合的绩效，并绘制最佳策略的图表结果（保存在 `performance_chart.png` 中）。
 
