@@ -1,82 +1,78 @@
+# 获取每日BTC涨幅，市值前20的代币平均涨幅和市值前50代币平均涨幅
 import requests
-import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import datetime
 import time
 
-def fetch_24h_tickers():
-    url = "https://api.binance.com/api/v3/ticker/24hr"
-    response = requests.get(url)
-    return response.json()
+BINANCE_API_BASE = "https://api.binance.com"
+COINGECKO_API_BASE = "https://api.coingecko.com/api/v3"
 
-def filter_usdt_pairs(data):
-    return [item for item in data if item['symbol'].endswith('USDT') and not item['symbol'].endswith('BUSD')]
 
-def get_top_20_symbols():
-    tickers = fetch_24h_tickers()
-    usdt_pairs = filter_usdt_pairs(tickers)
-    df = pd.DataFrame(usdt_pairs)
-    df['quoteVolume'] = pd.to_numeric(df['quoteVolume'], errors='coerce')
-    df = df.dropna().sort_values(by='quoteVolume', ascending=False).reset_index(drop=True)
-    top_20 = df.head(20)
-    return top_20['symbol'].tolist()
-
-def fetch_historical_prices(symbol, interval='1d', limit=365):
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    response = requests.get(url)
-    data = response.json()
-    df = pd.DataFrame(data, columns=[
-        'timestamp', 'open', 'high', 'low', 'close', 'volume',
-        'close_time', 'quote_asset_volume', 'trades',
-        'taker_base_vol', 'taker_quote_vol', 'ignore'
-    ])
-    df['close'] = pd.to_numeric(df['close'])
-    return df[['timestamp', 'close']]
-
-def calculate_annualized_return(prices_df):
-    if len(prices_df) < 2:
+def get_binance_price_change(symbol: str):
+    """获取币安24小时价格变动数据"""
+    url = f"{BINANCE_API_BASE}/api/v3/ticker/24hr?symbol={symbol}"
+    resp = requests.get(url)
+    if resp.status_code == 200:
+        data = resp.json()
+        return float(data["priceChangePercent"])
+    else:
         return None
-    start_price = prices_df['close'].iloc[0]
-    end_price = prices_df['close'].iloc[-1]
-    days = len(prices_df)
-    annualized_return = ((end_price / start_price) ** (365 / days) - 1) * 100
-    return annualized_return
+
+
+def get_top_market_cap_symbols(limit=50):
+    """获取CoinGecko市值前N的代币symbol（转换为币安交易对格式）"""
+    url = f"{COINGECKO_API_BASE}/coins/markets"
+    params = {
+        "vs_currency": "usd",
+        "order": "market_cap_desc",
+        "per_page": limit,
+        "page": 1,
+        "sparkline": False,
+    }
+    resp = requests.get(url, params=params)
+    result = []
+    if resp.status_code == 200:
+        for coin in resp.json():
+            symbol = coin["symbol"].upper()
+            if symbol == "USDT":
+                continue
+            result.append(symbol + "USDT")
+    return result
+
+
+def get_average_change(symbols):
+    """计算给定币种列表的平均涨幅"""
+    changes = []
+    for symbol in symbols:
+        try:
+            change = get_binance_price_change(symbol)
+            if change is not None:
+                changes.append(change)
+            time.sleep(0.1)  # 避免请求过快被限制
+        except Exception as e:
+            print(f"跳过 {symbol}，错误: {e}")
+    if changes:
+        return sum(changes) / len(changes)
+    return 0
+
 
 def main():
-    print("🔍 获取前 20 币种...")
-    top_symbols = get_top_20_symbols()
+    print(f"\n🕒 当前时间：{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
 
-    annual_returns = {}
-    for symbol in top_symbols:
-        print(f"📈 获取 {symbol} 历史数据中...")
-        try:
-            df = fetch_historical_prices(symbol)
-            annual_return = calculate_annualized_return(df)
-            if annual_return is not None:
-                annual_returns[symbol] = annual_return
-        except Exception as e:
-            print(f"❌ {symbol} 获取失败: {e}")
-        time.sleep(0.5)  # Binance API 限速保护
+    btc_change = get_binance_price_change("BTCUSDT")
+    if btc_change is not None:
+        print(f"\n📈 今日 BTC 涨幅：{btc_change:.2f}%")
+    else:
+        print("无法获取 BTC 涨幅")
 
-    # 转为DataFrame并绘图
-    result_df = pd.DataFrame(list(annual_returns.items()), columns=['Symbol', 'Annualized Return'])
-    result_df = result_df.sort_values(by='Annualized Return', ascending=False)
+    symbols_top_50 = get_top_market_cap_symbols(limit=50)
+    symbols_top_20 = symbols_top_50[:20]
 
-    plt.figure(figsize=(12, 6))
-    bars = plt.bar(result_df['Symbol'], result_df['Annualized Return'], color='skyblue')
-    plt.xlabel("Symbol")
-    plt.ylabel("Annualized Return (%)")
-    plt.title("📊 Top 20 币种年化涨幅 (基于过去365日)")
-    plt.xticks(rotation=45)
-    plt.axhline(y=0, color='gray', linestyle='--')
+    avg_change_20 = get_average_change(symbols_top_20)
+    print(f"\n📊 市值前 20 代币今日平均涨幅：{avg_change_20:.2f}%")
 
-    # 添加涨幅标签
-    for bar in bars:
-        yval = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width() / 2, yval, f'{yval:.1f}%', ha='center', va='bottom', fontsize=8)
+    avg_change_50 = get_average_change(symbols_top_50)
+    print(f"\n📊 市值前 50 代币今日平均涨幅：{avg_change_50:.2f}%")
 
-    plt.tight_layout()
-    plt.show()
 
 if __name__ == "__main__":
     main()

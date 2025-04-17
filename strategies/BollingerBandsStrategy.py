@@ -1,3 +1,4 @@
+#该策略回测效果非常差，需您进行优化或结合其他因子共同使用
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
 
@@ -22,7 +23,7 @@ def format_float(value, digits=2):
 client = Client()
 
 # 获取历史k线数据
-def get_binance_btc_data(symbol='BTCUSDT', interval='1h', lookback_days=300):
+def get_binance_btc_data(symbol='BTCUSDT', interval='1d', lookback_days=600):
     end_time = datetime.datetime.now()
     start_time = end_time - datetime.timedelta(days=lookback_days)
 
@@ -59,63 +60,43 @@ class PandasData(bt.feeds.PandasData):
         ('openinterest', -1),
     )
 
-# 海龟策略
-class TurtleATRStrategy(bt.Strategy):
+# 布林带策略
+class BBStrategy(bt.Strategy):
     params = (
-        ('entry_period', 20),
-        ('exit_period', 10),
-        ('atr_period', 14),
-        ('risk_per_trade', 0.01),
-        ('max_units', 4),  # 最多加仓次数
+        ('bb_period', 20),  # 布林带周期
+        ('bb_dev', 2),  # 布林带标准差
+        ('rsi_period', 14),  # RSI周期
+        ('rsi_overbought', 70),  # 超买阈值
+        ('rsi_oversold', 30),  # 超卖阈值
     )
 
     def __init__(self):
-        self.entry_high = bt.ind.Highest(self.data.high, period=self.p.entry_period)
-        self.exit_low = bt.ind.Lowest(self.data.low, period=self.p.exit_period)
-        self.atr = bt.ind.ATR(self.data, period=self.p.atr_period)
-        self.unit_size = 0
-        self.last_entry_price = None
-        self.units = 0
-        self.order = None
-        self.trade_count = 0
-
-    def notify_order(self, order):
-        if order.status in [order.Completed, order.Canceled, order.Margin]:
-            self.order = None
-    
-    def notify_trade(self, trade):
-        if trade.isclosed:
-            self.trade_count += 1
+        self.bollinger = bt.indicators.BollingerBands(self.data.close, period=self.p.bb_period, devfactor=self.p.bb_dev)
+        self.rsi = bt.indicators.RSI(self.data.close, period=self.p.rsi_period)
 
     def next(self):
-        if self.order:
-            return
+        if not self.position:  # 如果没有持仓
+            # 按照布林带突破策略
+            if self.data.close[0] > self.bollinger.lines.top[0]:  # 当前价格突破上轨
+                if self.rsi[0] < self.p.rsi_oversold:  # 超卖区域，潜在反转
+                    self.buy()  # 做多
 
-        cash = self.broker.get_cash()
+            elif self.data.close[0] < self.bollinger.lines.bot[0]:  # 当前价格突破下轨
+                if self.rsi[0] > self.p.rsi_overbought:  # 超买区域，潜在反转
+                    self.sell()  # 做空
 
-        if not self.position:
-            if self.data.close[0] > self.entry_high[-1]:
-                risk_amount = cash * self.p.risk_per_trade
-                self.unit_size = risk_amount / self.atr[0]
-                self.last_entry_price = self.data.close[0]
-                self.units = 1
-                self.order = self.buy(size=self.unit_size)
         else:
-            # 加仓逻辑：每次上涨0.5ATR时加一次仓
-            if self.units < self.p.max_units:
-                if self.data.close[0] >= self.last_entry_price + 0.5 * self.atr[0]:
-                    self.order = self.buy(size=self.unit_size)
-                    self.last_entry_price = self.data.close[0]
-                    self.units += 1
+            # 平仓逻辑：价格回到布林带中轨附近
+            if self.position.size > 0:  # 多头持仓
+                if self.data.close[0] < self.bollinger.lines.mid[0]:  # 价格回落至中轨
+                    self.close()  # 平多单
 
-            # 平仓逻辑：跌破 exit 通道 或者 价格低于最后入场价 - 2ATR（止损）
-            stop_price = self.last_entry_price - 2 * self.atr[0]
-            if self.data.close[0] < self.exit_low[-1] or self.data.close[0] < stop_price:
-                self.order = self.sell(size=self.position.size)
-                self.units = 0
+            elif self.position.size < 0:  # 空头持仓
+                if self.data.close[0] > self.bollinger.lines.mid[0]:  # 价格回升至中轨
+                    self.close()  # 平空单
 
 # 设置Backtrader
-def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=False):
+def run_backtest_and_plot(interval, bb_period, bb_dev, rsi_period, plot=False):
     df = get_binance_btc_data(interval=interval)
     data = PandasData(dataname=df)
 
@@ -125,10 +106,10 @@ def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=
     cerebro.adddata(data)
 
     cerebro.addstrategy(
-        TurtleATRStrategy,
-        entry_period=entry_period,
-        exit_period=exit_period,
-        atr_period=atr_period
+        BBStrategy,
+        bb_period=bb_period,
+        bb_dev=bb_dev,
+        rsi_period=rsi_period
     )
 
     # 添加分析器
@@ -148,16 +129,14 @@ def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=
     annual = returns.get('rnorm', None)
     average = returns.get('ravg', None)
     maxdd = drawdown.get('max', {}).get('drawdown', None)
-    total_trades = strat.trade_count
 
     # 输出分析结果
-    print(f"[{interval}] entry={entry_period}, exit={exit_period}, atr={atr_period} | "
+    print(f"[{interval}] bb_period={bb_period}, bb_dev={bb_dev}, rsi={rsi_period} | "
           f"Sharpe: {format_float(sharpe)}, "
           f"Return: {format_float(rtot * 100 if rtot is not None else None)}%, "
           f"MaxDD: {format_float(maxdd)}%, "
           f"Annual: {format_float(annual * 100 if annual is not None else None)}%, "
-          f"Avg: {format_float(average * 100 if average is not None else None)}%"
-          f"Trades Count:{total_trades}")
+          f"Avg: {format_float(average * 100 if average is not None else None)}%")
 
     # 绘图
     if plot:
@@ -173,20 +152,15 @@ def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=
 
     return {
         'interval': interval,
-        'entry': entry_period,
-        'exit': exit_period,
-        'atr': atr_period,
+        'bb_period': bb_period,
+        'bb_dev': bb_dev,
+        'rsi_period': rsi_period,
         'sharpe': sharpe,
         'return': rtot,
         'maxdd': maxdd,
         'annual': annual,
         'average': average,
-        'trades':total_trades,
     }
-
-
-def format_float(value, digits=2):
-    return f"{value:.{digits}f}" if value is not None else "N/A"
 
 def main():
     best_result = None
@@ -195,18 +169,18 @@ def main():
     best_sharpe = -float('inf')
     all_results = []
 
-    intervals = ['1h','15m','20m']
-    entry_range = range(5, 11, 5)
-    exit_range = range(20, 41, 5)
-    atr_range = range(10, 20, 5)
+    intervals = ['12h','1d']
+    bb_period_range = range(15, 30, 5)
+    bb_dev_range = [1.5, 2, 2.5]
+    rsi_period_range = [7, 18, 4]
 
     print("🔍 正在进行参数优化...\n")
 
     for interval in intervals:
-        for entry_p in entry_range:
-            for exit_p in exit_range:
-                for atr_p in atr_range:
-                    result = run_backtest_and_plot(interval, entry_p, exit_p, atr_p, plot=False)
+        for bb_period in bb_period_range:
+            for bb_dev in bb_dev_range:
+                for rsi_period in rsi_period_range:
+                    result = run_backtest_and_plot(interval, bb_period, bb_dev, rsi_period, plot=False)
                     if result:
                         all_results.append(result)
 
@@ -219,39 +193,27 @@ def main():
 
     # 最佳年化
     print("\n🏆 最佳年化参数组合:")
-    print(f"周期: {best_result['interval']}, entry={best_result['entry']}, exit={best_result['exit']}, atr={best_result['atr']}")
+    print(f"周期: {best_result['interval']}, bb_period={best_result['bb_period']}, bb_dev={best_result['bb_dev']}, rsi_period={best_result['rsi_period']}")
     print(f"🔹 Sharpe Ratio:  {format_float(best_result['sharpe'])}")
     print(f"🔹 Max Drawdown:  {format_float(best_result['maxdd'])}%")
     print(f"🔹 Annual Return: {format_float(best_result['annual'] * 100 if best_result['annual'] else None, 4)}%")
     print(f"🔹 Average Return:{format_float(best_result['average'] * 100 if best_result['average'] else None, 4)}%")
-    print(f"🔹count: {best_result['trades']}")
 
     # 最佳夏普
     print("\n📊 最佳夏普参数组合:")
-    print(f"周期: {best_sharpe_result['interval']}, entry={best_sharpe_result['entry']}, exit={best_sharpe_result['exit']}, atr={best_sharpe_result['atr']}")
+    print(f"周期: {best_sharpe_result['interval']}, bb_period={best_sharpe_result['bb_period']}, bb_dev={best_sharpe_result['bb_dev']}, rsi_period={best_sharpe_result['rsi_period']}")
     print(f"🔹 Sharpe Ratio:  {format_float(best_sharpe_result['sharpe'])}")
     print(f"🔹 Max Drawdown:  {format_float(best_sharpe_result['maxdd'])}%")
     print(f"🔹 Annual Return: {format_float(best_sharpe_result['annual'] * 100 if best_sharpe_result['annual'] else None, 4)}%")
-    print(f"🔹 Average Return:{format_float(best_sharpe_result['average'] * 100 if best_result['average'] else None, 4)}%")
-    print(f"🔹count: {best_sharpe_result['trades']}")
-    
-    # 使用最佳年化参数组合绘图
-    print("\n📈 使用最佳年化参数重新回测并绘图...")
-    run_backtest_and_plot(
-        interval=best_result['interval'],
-        entry_period=best_result['entry'],
-        exit_period=best_result['exit'],
-        atr_period=best_result['atr'],
-        plot=True
-    )
+    print(f"🔹 Average Return:{format_float(best_sharpe_result['average'] * 100 if best_sharpe_result['average'] else None, 4)}%")
 
     # 使用最佳夏普参数组合绘图
     print("\n📈 使用最佳夏普参数重新回测并绘图...")
     run_backtest_and_plot(
         interval=best_sharpe_result['interval'],
-        entry_period=best_sharpe_result['entry'],
-        exit_period=best_sharpe_result['exit'],
-        atr_period=best_sharpe_result['atr'],
+        bb_period=best_sharpe_result['bb_period'],
+        bb_dev=best_sharpe_result['bb_dev'],
+        rsi_period=best_sharpe_result['rsi_period'],
         plot=True
     )
 
