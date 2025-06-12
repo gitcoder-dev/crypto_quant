@@ -7,7 +7,7 @@ from binance.client import Client
 import datetime
 
 import matplotlib
-matplotlib.use('Agg')  # 使用非交互后端，避免弹窗问题
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
