@@ -23,24 +23,33 @@ client = Client()
 
 # 获取历史k线数据
 def get_binance_btc_data(symbol='BTCUSDT', interval='1h', lookback_days=300):
-    end_time = datetime.datetime.now()
-    start_time = end_time - datetime.timedelta(days=lookback_days)
+    # symbol 获取数据的交易对
+    # interval 获取数据的时间周期
+    # lookback_days 获取数据的时间范围
 
+    end_time = datetime.datetime.now()
+    # 结束时间
+    start_time = end_time - datetime.timedelta(days=lookback_days)
+    # 开始时间
+
+    # 获取 K 线交易数据
     klines = client.get_historical_klines(
         symbol,
         interval,
         start_str=start_time.strftime("%d %b %Y %H:%M:%S"),
         end_str=end_time.strftime("%d %b %Y %H:%M:%S")
     )
-
+    # 将数据转换为DataFrame
     df = pd.DataFrame(klines, columns=[
         'timestamp', 'open', 'high', 'low', 'close', 'volume',
         'close_time', 'quote_asset_volume', 'number_of_trades',
         'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
     ])
-
+    #在 df 矩阵中添加"datatime"列,数据来源于 timestamp 单位为毫秒
     df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+    #将"datetime"列设置为索引
     df.set_index('datetime', inplace=True)
+    #将 df 矩阵中的"open", "high", "low", "close", "volume"列的数据类型转换为浮点数
     df = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
 
     return df
@@ -62,17 +71,18 @@ class PandasData(bt.feeds.PandasData):
 # 海龟策略
 class TurtleATRStrategy(bt.Strategy):
     params = (
-        ('entry_period', 20),
-        ('exit_period', 10),
-        ('atr_period', 14),
-        ('risk_per_trade', 0.01),
+        ('entry_period', 20),  # 入场周期
+        ('exit_period', 10),  # 出场周期
+        ('atr_period', 14),  # ATR周期,平均真实波动幅度
+        ('risk_per_trade', 0.01),   # 每次交易的风险比例
         ('max_units', 4),  # 最多加仓次数
     )
 
     def __init__(self):
-        self.entry_high = bt.ind.Highest(self.data.high, period=self.p.entry_period)
-        self.exit_low = bt.ind.Lowest(self.data.low, period=self.p.exit_period)
-        self.atr = bt.ind.ATR(self.data, period=self.p.atr_period)
+        #初始化入场最高价、出场最低价、ATR、单位大小、最后入场价、加仓次数、订单、交易次数
+        self.entry_high = bt.ind.Highest(self.data.high, period=self.p.entry_period)    # 入场最高价
+        self.exit_low = bt.ind.Lowest(self.data.low, period=self.p.exit_period)         # 出场最低价
+        self.atr = bt.ind.ATR(self.data, period=self.p.atr_period)                     # ATR
         self.unit_size = 0
         self.last_entry_price = None
         self.units = 0
@@ -94,12 +104,13 @@ class TurtleATRStrategy(bt.Strategy):
         cash = self.broker.get_cash()
 
         if not self.position:
-            if self.data.close[0] > self.entry_high[-1]:
-                risk_amount = cash * self.p.risk_per_trade
-                self.unit_size = risk_amount / self.atr[0]
-                self.last_entry_price = self.data.close[0]
-                self.units = 1
-                self.order = self.buy(size=self.unit_size)
+            # 入场逻辑：如果当前价格大于入场最高价
+            if self.data.close[0] > self.entry_high[-1]: # 如果当前价格大于入场最高价
+                risk_amount = cash * self.p.risk_per_trade # 计算风险金额
+                self.unit_size = risk_amount / self.atr[0] # 计算单位大小
+                self.last_entry_price = self.data.close[0] # 记录最后入场价
+                self.units = 1 # 记录加仓次数
+                self.order = self.buy(size=self.unit_size) # 买入
         else:
             # 加仓逻辑：每次上涨0.5ATR时加一次仓
             if self.units < self.p.max_units:
@@ -120,10 +131,11 @@ def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=
     data = PandasData(dataname=df)
 
     cerebro = bt.Cerebro()
-    cerebro.broker.setcash(10000.0)
-    cerebro.broker.setcommission(commission=0.0008)
-    cerebro.adddata(data)
+    cerebro.broker.setcash(10000.0)     # 设置初始资金
+    cerebro.broker.setcommission(commission=0.0008) # 设置交易手续费
+    cerebro.adddata(data) #添加数据 
 
+    # 添加策略
     cerebro.addstrategy(
         TurtleATRStrategy,
         entry_period=entry_period,
@@ -152,12 +164,12 @@ def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=
 
     # 输出分析结果
     print(f"[{interval}] entry={entry_period}, exit={exit_period}, atr={atr_period} | "
-          f"Sharpe: {format_float(sharpe)}, "
-          f"Return: {format_float(rtot * 100 if rtot is not None else None)}%, "
-          f"MaxDD: {format_float(maxdd)}%, "
-          f"Annual: {format_float(annual * 100 if annual is not None else None)}%, "
-          f"Avg: {format_float(average * 100 if average is not None else None)}%"
-          f"Trades Count:{total_trades}")
+          f"夏普比率: {format_float(sharpe)}, "
+          f"复合回报率: {format_float(rtot * 100 if rtot is not None else None)}%, "
+          f"最大回撤: {format_float(maxdd)}%, "
+          f"年化收益率: {format_float(annual * 100 if annual is not None else None)}%, "
+          f"平均收益率: {format_float(average * 100 if average is not None else None)}%"
+          f"交易次数 :{total_trades}")
 
     # 绘图
     if plot:
@@ -195,7 +207,7 @@ def main():
     best_sharpe = -float('inf')
     all_results = []
 
-    intervals = ['1h','15m','20m']
+    intervals = ['1h','15m', '30m']
     entry_range = range(5, 11, 5)
     exit_range = range(20, 41, 5)
     atr_range = range(10, 20, 5)
@@ -220,20 +232,20 @@ def main():
     # 最佳年化
     print("\n🏆 最佳年化参数组合:")
     print(f"周期: {best_result['interval']}, entry={best_result['entry']}, exit={best_result['exit']}, atr={best_result['atr']}")
-    print(f"🔹 Sharpe Ratio:  {format_float(best_result['sharpe'])}")
-    print(f"🔹 Max Drawdown:  {format_float(best_result['maxdd'])}%")
-    print(f"🔹 Annual Return: {format_float(best_result['annual'] * 100 if best_result['annual'] else None, 4)}%")
-    print(f"🔹 Average Return:{format_float(best_result['average'] * 100 if best_result['average'] else None, 4)}%")
-    print(f"🔹count: {best_result['trades']}")
+    print(f"🔹 夏普比率:  {format_float(best_result['sharpe'])}") # 夏普比率
+    print(f"🔹 最大回撤:  {format_float(best_result['maxdd'])}%") # 最大回撤
+    print(f"🔹 年化收益率: {format_float(best_result['annual'] * 100 if best_result['annual'] else None, 4)}%") # 年化收益率 
+    print(f"🔹 平均收益率:{format_float(best_result['average'] * 100 if best_result['average'] else None, 4)}%") # 平均收益率
+    print(f"🔹 交易次数t: {best_result['trades']}") # 交易次数   
 
     # 最佳夏普
     print("\n📊 最佳夏普参数组合:")
     print(f"周期: {best_sharpe_result['interval']}, entry={best_sharpe_result['entry']}, exit={best_sharpe_result['exit']}, atr={best_sharpe_result['atr']}")
-    print(f"🔹 Sharpe Ratio:  {format_float(best_sharpe_result['sharpe'])}")
-    print(f"🔹 Max Drawdown:  {format_float(best_sharpe_result['maxdd'])}%")
-    print(f"🔹 Annual Return: {format_float(best_sharpe_result['annual'] * 100 if best_sharpe_result['annual'] else None, 4)}%")
-    print(f"🔹 Average Return:{format_float(best_sharpe_result['average'] * 100 if best_result['average'] else None, 4)}%")
-    print(f"🔹count: {best_sharpe_result['trades']}")
+    print(f"🔹 夏普比率:  {format_float(best_sharpe_result['sharpe'])}")    # 夏普比率
+    print(f"🔹 最大回撤:  {format_float(best_sharpe_result['maxdd'])}%")      # 最大回撤
+    print(f"🔹 年化收益率: {format_float(best_sharpe_result['annual'] * 100 if best_sharpe_result['annual'] else None, 4)}%") # 年化收益率
+    print(f"🔹 平均收益率: {format_float(best_sharpe_result['average'] * 100 if best_sharpe_result['average'] else None, 4)}%") # 平均收益率
+    print(f"🔹 交易次数: {best_sharpe_result['trades']}")
     
     # 使用最佳年化参数组合绘图
     print("\n📈 使用最佳年化参数重新回测并绘图...")
