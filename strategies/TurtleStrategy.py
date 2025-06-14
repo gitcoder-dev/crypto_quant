@@ -14,6 +14,10 @@ import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
+import os
+import json
+from pathlib import Path
+
 # 处理变量为none
 def format_float(value, digits=2):
     return f"{value:.{digits}f}" if value is not None else "N/A"
@@ -21,40 +25,50 @@ def format_float(value, digits=2):
 # 初始化币安客户端
 client = Client()
 
-# 获取历史k线数据
-def get_binance_btc_data(symbol='BTCUSDT', interval='1h', lookback_days=300):
-    # symbol 获取数据的交易对
-    # interval 获取数据的时间周期
-    # lookback_days 获取数据的时间范围
-
+# 加载获取历史k线数据
+def get_data(symbol='BTCUSDT', interval='1h', lookback_days=300):
+    # 创建data目录（如果不存在）
+    data_dir = Path('data')
+    data_dir.mkdir(exist_ok=True)
     end_time = datetime.datetime.now()
-    # 结束时间
     start_time = end_time - datetime.timedelta(days=lookback_days)
-    # 开始时间
-
-    # 获取 K 线交易数据
+    end_str = end_time.strftime("%Y-%m-%d-%H:%M")
+    
+    # 构建本地文件路径
+    file_name = f"{symbol}_{interval}_{lookback_days}d_{end_str}.csv"
+    file_path = data_dir / file_name
+    
+    # 检查本地文件是否存在
+    if file_path.exists():
+        print(f"📂 从本地加载数据: {file_path}")
+        df = pd.read_csv(file_path, index_col='datetime', parse_dates=True)
+        return df
+    
+    print(f"🌐 从币安获取数据: {symbol} {interval}")
     klines = client.get_historical_klines(
         symbol,
         interval,
         start_str=start_time.strftime("%d %b %Y %H:%M:%S"),
         end_str=end_time.strftime("%d %b %Y %H:%M:%S")
     )
-    # 将数据转换为DataFrame
+    
     df = pd.DataFrame(klines, columns=[
         'timestamp', 'open', 'high', 'low', 'close', 'volume',
         'close_time', 'quote_asset_volume', 'number_of_trades',
         'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
     ])
-    #在 df 矩阵中添加"datatime"列,数据来源于 timestamp 单位为毫秒
+    
     df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-    #将"datetime"列设置为索引
     df.set_index('datetime', inplace=True)
-    #将 df 矩阵中的"open", "high", "low", "close", "volume"列的数据类型转换为浮点数
     df = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
-
+    
+    # 保存数据到本地
+    print(f"💾 保存数据到本地: {file_path}")
+    df.to_csv(file_path)
+    
     return df
 
-df = get_binance_btc_data()
+df = get_data()
 
 # backtrader 数据接口
 class PandasData(bt.feeds.PandasData):
@@ -71,10 +85,10 @@ class PandasData(bt.feeds.PandasData):
 # 海龟策略
 class TurtleATRStrategy(bt.Strategy):
     params = (
-        ('entry_period', 20),  # 入场周期
-        ('exit_period', 10),  # 出场周期
-        ('atr_period', 14),  # ATR周期,平均真实波动幅度
-        ('risk_per_trade', 0.01),   # 每次交易的风险比例
+        ('entry_period', 20),   # 入场周期,20天
+        ('exit_period', 10),    # 出场周期,10天
+        ('atr_period', 14),  # ATR周期,平均真实波动幅度,14天
+        ('risk_per_trade', 0.01),   # 每次交易的风险比例,1%
         ('max_units', 4),  # 最多加仓次数
     )
 
@@ -127,7 +141,8 @@ class TurtleATRStrategy(bt.Strategy):
 
 # 设置Backtrader
 def run_backtest_and_plot(interval, entry_period, exit_period, atr_period, plot=False):
-    df = get_binance_btc_data(interval=interval)
+
+    df = get_data(symbol='BTCUSDT', interval=interval, lookback_days=300) 
     data = PandasData(dataname=df)
 
     cerebro = bt.Cerebro()
